@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Click pop ──────────────────────────────────────────── */
+@keyframes click-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.93); }
+  70%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+button,
+a,
+[role="button"] {
+  transition: transform 0.08s ease;
+}
+
+button:active,
+a:active,
+[role="button"]:active {
+  animation: click-pop 0.25s ease forwards;
+}
+
+/* ── Entrance animations ────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.88); }
+  65%  { transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Page content slides up when route changes */
+main > * {
+  animation: fade-up 0.35s ease both;
+}
+
+/* Cards and panels pop in */
+.card-animate {
+  animation: pop-in 0.3s ease both;
+}
+
+/* Staggered children — apply .stagger-children to the wrapper */
+.stagger-children > *:nth-child(1) { animation: fade-up 0.3s ease 0.00s both; }
+.stagger-children > *:nth-child(2) { animation: fade-up 0.3s ease 0.06s both; }
+.stagger-children > *:nth-child(3) { animation: fade-up 0.3s ease 0.12s both; }
+.stagger-children > *:nth-child(4) { animation: fade-up 0.3s ease 0.18s both; }
+.stagger-children > *:nth-child(5) { animation: fade-up 0.3s ease 0.24s both; }
+.stagger-children > *:nth-child(6) { animation: fade-up 0.3s ease 0.30s both; }
+.stagger-children > *:nth-child(7) { animation: fade-up 0.3s ease 0.36s both; }
+.stagger-children > *:nth-child(8) { animation: fade-up 0.3s ease 0.42s both; }
+
+/* Dropdown / modal fade-down */
+.animate-fade-down {
+  animation: fade-down 0.2s ease both;
+}
+
+/* Generic helpers you can drop on any element */
+.animate-fade-up   { animation: fade-up  0.35s ease both; }
+.animate-fade-in   { animation: fade-in  0.3s  ease both; }
+.animate-pop-in    { animation: pop-in   0.3s  ease both; }

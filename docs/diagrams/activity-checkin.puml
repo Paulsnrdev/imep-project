@@ -1,0 +1,104 @@
+@startuml IMEP_Activity_CheckIn
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam ActivityBorderColor #27AE60
+skinparam ActivityBackgroundColor #EAFAF1
+skinparam ActivityDiamondBorderColor #E74C3C
+skinparam ActivityDiamondBackgroundColor #FADBD8
+skinparam ActivityStartColor #1A5276
+skinparam ActivityEndColor #1A5276
+skinparam swimlaneBorderColor #BDC3C7
+skinparam swimlaneBackgroundColor #FDFEFE
+
+title IMEP — Activity Diagram: GPS Attendance Check-In & Check-Out
+
+|Student (Browser)|
+start
+
+:Open Attendance Page;
+:Tap "Check In" button;
+:Request browser GPS location\n(navigator.geolocation.getCurrentPosition);
+
+if (GPS permission granted?) then (No)
+  :Show error:\n"Location access is required\nto check in";
+  stop
+else (Yes)
+  :Receive { latitude, longitude };
+endif
+
+:Send POST /api/attendance/checkin\n{ latitude, longitude };
+
+|Backend API|
+
+:Verify JWT access token (protect middleware);
+
+if (Token valid?) then (No)
+  :Return 401 Unauthorized;
+  stop
+else (Yes)
+  :Fetch active Internship + StudentProfile\nfor current user;
+endif
+
+if (Active internship found?) then (No)
+  :Return 403\n"Not linked to an active internship";
+  stop
+else (Yes)
+  :Check if already checked in today;
+endif
+
+if (Already checked in?) then (Yes)
+  :Return 409\n"Already checked in today";
+  stop
+else (No)
+  :Calculate distance from registered\nwork location (Haversine formula);
+endif
+
+if (Distance ≤ 200m geofence radius?) then (No)
+  :Return 422 GEOFENCE_VIOLATION\n{ distanceFromOffice, radius, code };
+
+  |Student (Browser)|
+  :Display "Xm from work zone"\nCheck-in blocked;
+  stop
+else (Yes)
+  |Backend API|
+  :Convert current time to WAT (UTC+1);
+  :isLate = time after shift_start + 30 min\n(e.g. after 08:30 for '8-16' shift);
+endif
+
+if (isLate AND no violationReason provided?) then (Yes)
+  :Return 422\n{ requiresReason: true,\n  type: 'late_checkin',\n  workShift };
+
+  |Student (Browser)|
+  :Display "You are checking in late"\nprompt for reason;
+  :Student enters reason text;
+  :Resubmit POST with violationReason;
+
+  |Backend API|
+  :Re-validate (same geofence + time checks);
+else (No)
+end if
+
+:Upsert Attendance record\n{ checkIn: { time, latitude, longitude, isLate },\n  status: isLate ? 'late' : 'present',\n  violation: { type, reason, recordedAt } if late };
+
+:Send push notification to\nindustry supervisor + institution supervisor\n"Student Checked In at HH:MM [location]";
+
+:Return 200 { success: true, data: record };
+
+|Student (Browser)|
+:Show "Checked In ✓" card\nwith check-in time and location;
+
+note right
+  CHECK-OUT follows
+  the same flow but:
+  • finds today's existing record
+  • detects isEarlyDeparture
+    (before endH-1:30 WAT)
+  • saves checkOut fields
+  • violation type = early_checkout
+end note
+
+stop
+
+@enduml

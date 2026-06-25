@@ -1,0 +1,180 @@
+@startuml IMEP_UseCaseDiagram
+
+skinparam backgroundColor #FFFFFF
+skinparam actorStyle awesome
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam usecaseBorderColor #2E86C1
+skinparam usecaseBackgroundColor #EBF5FB
+skinparam actorBorderColor #1A5276
+skinparam rectangleBorderColor #5D6D7E
+skinparam rectangleBorderThickness 1.5
+skinparam ArrowColor #2E86C1
+skinparam noteBorderColor #F39C12
+skinparam noteBackgroundColor #FEF9E7
+
+left to right direction
+
+title IMEP — Use Case Diagram\nInternship Management & Evaluation Platform
+
+' ─── Actors ──────────────────────────────────────────────────
+actor Student                          as S
+actor "Industry\nSupervisor"           as IS
+actor "Institution\nSupervisor"        as ISup
+actor Admin                            as A
+actor "System\n(Cron)"                 as SYS
+
+' ─── System Boundary ─────────────────────────────────────────
+rectangle "IMEP System" {
+
+  ' AUTH & ONBOARDING
+  rectangle "Authentication & Onboarding" {
+    usecase "Register Account"       as UC_REG
+    usecase "Login"                  as UC_LOGIN
+    usecase "Reset Password"         as UC_RESET
+    usecase "Complete Onboarding"    as UC_ONBOARD
+    usecase "Manage Sessions"        as UC_SESSION
+    usecase "Update Profile"         as UC_PROFILE
+  }
+
+  ' STUDENT FEATURES
+  rectangle "Student Features" {
+    usecase "View Dashboard"             as UC_DASH
+    usecase "GPS Check-In"              as UC_CHECKIN
+    usecase "GPS Check-Out"             as UC_CHECKOUT
+    usecase "Report Violation Reason"   as UC_VIOL
+    usecase "View Attendance History"   as UC_ATT_HIST
+    usecase "Create Daily Log Entry"    as UC_LOG_ENTRY
+    usecase "Upload Weekly Summary\nImage" as UC_LOG_IMG
+    usecase "View Logbook Weeks"        as UC_LOG_VIEW
+    usecase "View Grades"               as UC_GRADES
+    usecase "Nominate Supervisor"       as UC_NOMINATE
+  }
+
+  ' INDUSTRY SUPERVISOR FEATURES
+  rectangle "Industry Supervisor Features" {
+    usecase "View Assigned Students"    as UC_IS_STUDENTS
+    usecase "View Student Logbook"      as UC_IS_LOGBOOK
+    usecase "Submit Supervisor Grade"   as UC_IS_GRADE
+    usecase "Comment on Logbook Week"   as UC_IS_COMMENT
+    usecase "View Student Attendance"   as UC_IS_ATT
+  }
+
+  ' INSTITUTION SUPERVISOR FEATURES
+  rectangle "Institution Supervisor Features" {
+    usecase "View All Students"             as UC_ISP_STUDENTS
+    usecase "Assign Internship"             as UC_ISP_ASSIGN
+    usecase "View Grades Overview"          as UC_ISP_GRADES
+    usecase "View Leaderboard"              as UC_ISP_LEAD
+    usecase "Search Students &\nSupervisors" as UC_SEARCH
+  }
+
+  ' MESSAGING
+  rectangle "Messaging" {
+    usecase "Send Message"         as UC_MSG_SEND
+    usecase "View Conversations"   as UC_MSG_VIEW
+  }
+
+  ' NOTIFICATIONS
+  rectangle "Notifications" {
+    usecase "Receive Push\nNotification"   as UC_PUSH
+    usecase "View Notification\nHistory"  as UC_NOTIF_VIEW
+    usecase "Register FCM Token"          as UC_FCM
+  }
+
+  ' ADMIN FEATURES
+  rectangle "Admin Features" {
+    usecase "View System Statistics"     as UC_ADM_STATS
+    usecase "Manage Users"               as UC_ADM_USERS
+    usecase "Deactivate / Activate User" as UC_ADM_TOGGLE
+    usecase "Edit Attendance Records"    as UC_ADM_ATT
+    usecase "Sync Logbook Weeks"         as UC_ADM_SYNC
+    usecase "Submit Grade (On Behalf)"   as UC_ADM_GRADE
+  }
+
+  ' AUTOMATED SYSTEM JOBS
+  rectangle "Automated System Jobs" {
+    usecase "Lock Logbook Week\n(Every Sunday 5 PM)" as UC_SYS_LOCK
+    usecase "Calculate Grades\n(Weekly)"             as UC_SYS_GRADE
+    usecase "Send Submission\nReminder"              as UC_SYS_REM
+    usecase "Flag Missing Checkout"                  as UC_SYS_CHECKOUT
+    usecase "Alert Absence"                          as UC_SYS_ABS
+  }
+}
+
+' ─── Student Associations ─────────────────────────────────────
+S --> UC_REG
+S --> UC_LOGIN
+S --> UC_RESET
+S --> UC_ONBOARD
+S --> UC_SESSION
+S --> UC_PROFILE
+S --> UC_DASH
+S --> UC_CHECKIN
+S --> UC_CHECKOUT
+S --> UC_ATT_HIST
+S --> UC_LOG_ENTRY
+S --> UC_LOG_IMG
+S --> UC_LOG_VIEW
+S --> UC_GRADES
+S --> UC_NOMINATE
+S --> UC_MSG_SEND
+S --> UC_MSG_VIEW
+S --> UC_PUSH
+S --> UC_NOTIF_VIEW
+S --> UC_FCM
+
+' ─── Industry Supervisor Associations ─────────────────────────
+IS --> UC_LOGIN
+IS --> UC_PROFILE
+IS --> UC_IS_STUDENTS
+IS --> UC_IS_LOGBOOK
+IS --> UC_IS_GRADE
+IS --> UC_IS_COMMENT
+IS --> UC_IS_ATT
+IS --> UC_MSG_SEND
+IS --> UC_MSG_VIEW
+IS --> UC_PUSH
+IS --> UC_NOTIF_VIEW
+
+' ─── Institution Supervisor Associations ──────────────────────
+ISup --> UC_LOGIN
+ISup --> UC_PROFILE
+ISup --> UC_ISP_STUDENTS
+ISup --> UC_ISP_ASSIGN
+ISup --> UC_ISP_GRADES
+ISup --> UC_ISP_LEAD
+ISup --> UC_SEARCH
+ISup --> UC_MSG_SEND
+ISup --> UC_MSG_VIEW
+ISup --> UC_PUSH
+ISup --> UC_NOTIF_VIEW
+
+' ─── Admin Associations ───────────────────────────────────────
+A --> UC_LOGIN
+A --> UC_ADM_STATS
+A --> UC_ADM_USERS
+A --> UC_ADM_TOGGLE
+A --> UC_ADM_ATT
+A --> UC_ADM_SYNC
+A --> UC_ADM_GRADE
+A --> UC_IS_LOGBOOK
+
+' ─── System Cron Associations ─────────────────────────────────
+SYS --> UC_SYS_LOCK
+SYS --> UC_SYS_GRADE
+SYS --> UC_SYS_REM
+SYS --> UC_SYS_CHECKOUT
+SYS --> UC_SYS_ABS
+
+' ─── Include / Extend Relationships ───────────────────────────
+UC_CHECKIN  ..> UC_VIOL : <<extend>>\n(if late or\noutside geofence)
+UC_CHECKOUT ..> UC_VIOL : <<extend>>\n(if early departure)
+UC_LOG_ENTRY ..> UC_LOG_IMG : <<extend>>\n(after all 5 days)
+
+UC_SYS_REM      ..> UC_PUSH : <<include>>
+UC_SYS_CHECKOUT ..> UC_PUSH : <<include>>
+UC_SYS_ABS      ..> UC_PUSH : <<include>>
+UC_SYS_LOCK     ..> UC_PUSH : <<include>>
+
+@enduml

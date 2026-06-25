@@ -1,0 +1,91 @@
+@startuml IMEP_Seq_Grading
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #E67E22
+skinparam sequenceParticipantBackgroundColor #FEF9E7
+skinparam sequenceActorBorderColor #1A5276
+skinparam sequenceGroupBorderColor #5D6D7E
+skinparam sequenceGroupBackgroundColor #F8F9FA
+skinparam noteBorderColor #2E86C1
+skinparam noteBackgroundColor #EBF5FB
+
+title IMEP — Sequence Diagram: Grade Calculation (Automated + Manual)
+
+participant "BullMQ\nCron Worker"       as CRON
+database    "MongoDB"                   as DB
+actor       "Industry\nSupervisor"      as IS
+actor       "Institution\nSupervisor"   as ISup
+actor       Student
+participant "React Frontend"            as FE
+participant "Express API\n/api/industry" as API
+
+== Automated System Score Calculation (Weekly) ==
+
+note over CRON : Triggered by BullMQ\ngrade-calculation job
+
+CRON -> DB   : Internship.find({ isActive: true })
+DB  --> CRON : [ Internship[] ]
+
+loop for each active student internship
+  CRON -> DB   : Attendance.find({ student, internship,\ndate: { $gte: weekStart, $lte: weekEnd } })
+  DB  --> CRON : [ Attendance[] ]
+  CRON -> CRON : presentDays = records where\nstatus in ['present','late']
+  CRON -> CRON : attendanceScore = (presentDays / totalWorkingDays) × 20\n(max 20 points)
+
+  CRON -> DB   : LogbookWeek.findOne({ student, weekNumber })\nDailyLogEntry.countDocuments({ week })
+  DB  --> CRON : { week, completedDays }
+  CRON -> CRON : logbookScore = (completedDays / 5) × 30\n(max 30 points)
+  CRON -> CRON : systemScore = attendanceScore + logbookScore\n(max 50 points)
+
+  CRON -> DB   : Grade.findOneAndUpdate(\n  { student, weekNumber },\n  { attendanceScore, logbookScore, systemScore,\n    isSystemCalculated: true },\n  { upsert: true, new: true }\n)
+  DB  --> CRON : Grade record saved / updated
+end
+
+== Manual Supervisor Grading ==
+
+IS -> FE  : Navigate to Grading page
+FE -> API : GET /api/industry/grading
+API -> DB : Internship.findOne({ industrySupervisor })\n→ students list\n→ Grade.find({ student, internship })
+DB --> API : [ { student, grades[] }[] ]
+API --> FE : 200 { success, data: studentsWithGrades }
+FE --> IS  : Show grading table — per student per week
+
+IS -> FE  : Enter supervisorScore (0–50)\n+ optional note for a student/week
+FE -> API : POST /api/industry/grading/:studentId/week/:weekId\n{ supervisorScore: 40, supervisorNote: "Good work" }
+API -> API : protect + authorize(['industry_supervisor'])
+API -> DB  : Grade.findOne({ student, logbookWeek: weekId })
+DB --> API : Grade { systemScore: 38, attendanceScore: 18,\nlogbookScore: 20 }
+API -> DB  : Grade.findOneAndUpdate(\n  { student, logbookWeek },\n  { supervisorScore: 40,\n    supervisorNote,\n    gradedBy: supervisorId,\n    gradedAt: now,\n    totalScore: 38 + 40 = 78 }\n)
+DB --> API : Grade updated (totalScore: 78/100)
+API --> FE : 200 { success, data: updatedGrade }
+FE  --> IS : Grade row updates with total score
+
+== Student Views Weekly Grade Breakdown ==
+
+Student -> FE  : Navigate to Grades page
+FE      -> API : GET /api/student/grades
+API     -> DB  : Grade.find({ student: currentUser })\n.sort({ weekNumber: 1 })
+DB     --> API : [ Grade[] ]
+API    --> FE  : 200 { success, data: grades }
+FE     --> Student : Display per-week breakdown:\n  Attendance (0–20) | Logbook (0–30)\n  Supervisor (0–50) | Total (0–100)
+
+== Institution Supervisor Views Overview & Leaderboard ==
+
+ISup -> FE  : Navigate to Grades Overview
+FE   -> API : GET /api/institution/grades
+API  -> DB  : Internship.find({ institutionSupervisor })\n→ Grade.find all for those students
+DB  --> API : Aggregated grade data
+API --> FE  : 200 { success, data: studentsWithGrades }
+FE  --> ISup : Tabular grades overview
+
+ISup -> FE  : Navigate to Leaderboard
+FE   -> API : GET /api/institution/leaderboard
+API  -> DB  : Grade.aggregate: group by student,\nsum totalScore, sort DESC
+DB  --> API : Ranked student list
+API --> FE  : 200 { success, data: leaderboard }
+FE  --> ISup : Show ranked student list with scores
+
+@enduml

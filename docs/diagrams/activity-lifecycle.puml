@@ -1,0 +1,106 @@
+@startuml IMEP_Activity_Lifecycle
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam ActivityBorderColor #2E86C1
+skinparam ActivityBackgroundColor #EBF5FB
+skinparam ActivityDiamondBorderColor #E74C3C
+skinparam ActivityDiamondBackgroundColor #FADBD8
+skinparam ActivityStartColor #1A5276
+skinparam ActivityEndColor #1A5276
+skinparam swimlaneBorderColor #BDC3C7
+skinparam swimlaneBackgroundColor #FDFEFE
+
+title IMEP — Activity Diagram: Student Internship Full Lifecycle
+
+|Student|
+start
+
+:Register Account\n(firstName, lastName, email, password, role);
+
+:Login with credentials;
+
+:Complete Role-Specific Onboarding\n(university · department · company\nwork location geofence · internship dates);
+
+:Student Dashboard Activated;
+
+|Institution Supervisor|
+
+:Assign Internship to Student\n(link industry supervisor, set dates);
+
+|Student|
+
+repeat
+
+  :GPS Check-In at work site;
+
+  if (Within 200m geofence?) then (Yes)
+    if (Arriving after shift start + 30 min?) then (Yes — Late)
+      :Enter late check-in reason;
+      :Record Attendance\n{ status: 'late', violation: {type, reason} };
+    else (No — On time)
+      :Record Attendance\n{ status: 'present' };
+    endif
+  else (No — Outside zone)
+    :Check-in blocked\nShow "Xm from work zone" error;
+    stop
+  endif
+
+  :Perform daily work activities;
+
+  fork
+    |Student|
+    :Write Daily Log Entry\n(activitiesCarriedOut, skillsLearned,\nchallenges, planForTomorrow);
+  fork again
+    |Student|
+    :GPS Check-Out at end of day;
+
+    if (Before shift end – 1 hour?) then (Yes — Early)
+      :Enter early departure reason;
+      :Record checkOut\n{ isEarlyDeparture: true, violation };
+    else (No)
+      :Record checkOut\n{ isEarlyDeparture: false };
+    endif
+  end fork
+
+  if (5 days complete this week?) then (Yes)
+    :Upload Weekly Summary Image\n(photo uploaded to Cloudinary);
+    :Week marked as submitted;
+  else (No)
+    :Continue to next day;
+  endif
+
+  |System (Cron)|
+  :Every Sunday 5 PM:\nLock LogbookWeek (isLocked = true)\nPush Notif: "Week Locked";
+
+  :Weekly Grade Calculation:\nattendanceScore = presentDays/totalDays × 20\nlogbookScore = completedDays/5 × 30\nsystemScore = attendanceScore + logbookScore;
+
+  :Daily: Flag students with\nmissedCheckout = true;
+
+  |Industry Supervisor|
+  :Review weekly logbook entries;
+  :Add comment / feedback;
+  :Submit supervisor grade (0–50)\n+ optional note;
+
+  |System (Cron)|
+  :Combine scores:\ntotalScore = systemScore + supervisorScore\n(max 100);
+  :Upsert Grade record;
+
+  |Student|
+  :View weekly grade breakdown\n(Attendance | Logbook | Supervisor | Total);
+
+repeat while (Internship period complete?) is (No)
+
+|Student|
+:Internship Ends;
+
+|Institution Supervisor|
+:View Final Grades Overview;
+:View Leaderboard (students ranked by totalScore);
+:Generate Internship Reports;
+
+|Student|
+stop
+
+@enduml

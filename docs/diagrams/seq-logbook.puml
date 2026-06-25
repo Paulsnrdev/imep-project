@@ -1,0 +1,97 @@
+@startuml IMEP_Seq_Logbook
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #8E44AD
+skinparam sequenceParticipantBackgroundColor #F5EEF8
+skinparam sequenceActorBorderColor #1A5276
+skinparam sequenceGroupBorderColor #5D6D7E
+skinparam sequenceGroupBackgroundColor #F8F9FA
+skinparam noteBorderColor #F39C12
+skinparam noteBackgroundColor #FEF9E7
+
+title IMEP — Sequence Diagram: Logbook Entry & Weekly Submission
+
+actor       Student
+actor       "Industry\nSupervisor" as IS
+participant "React Frontend"       as FE
+participant "Express API\n/api/logbook" as API
+participant "Logbook\nController"  as CTRL
+participant "Multer / Cloudinary"  as CLOUD
+database    "MongoDB"              as DB
+participant "BullMQ Cron"          as CRON
+participant "Notification\nService" as NOTIF
+
+== View Logbook Weeks ==
+
+Student -> FE  : Navigate to Logbook page
+FE      -> API : GET /api/logbook/weeks
+API     -> DB  : LogbookWeek.find({ student: currentUserId })\n.sort({ weekNumber: 1 })
+DB     --> API : [ LogbookWeek[] ]
+API    --> FE  : 200 { success, data: weeks }
+FE     --> Student : Show week list with lock status\n& per-day completion indicators
+
+== Submit Daily Log Entry ==
+
+Student -> FE  : Select a day, fill log form\n(activitiesCarriedOut, skillsLearned,\nchallenges, planForTomorrow)
+FE      -> API : POST /api/logbook/weeks/:weekId/entries\n{ day, activitiesCarriedOut, skillsLearned,\n  challenges, planForTomorrow }
+API     -> CTRL : createOrUpdateEntry(req, res)
+CTRL    -> CTRL : protect + authorize(['student'])
+CTRL    -> DB   : LogbookWeek.findById(weekId)
+DB     --> CTRL : LogbookWeek document
+
+alt Week is locked (isLocked: true)
+  CTRL --> FE   : 403 "This week is locked for editing"
+  FE   --> Student : Show "Week locked" notice — read-only view
+else Week is open
+  CTRL -> DB   : DailyLogEntry.findOneAndUpdate(\n  { week: weekId, day },\n  { ...fields },\n  { upsert: true, new: true }\n)
+  DB  --> CTRL : Entry saved / updated
+  CTRL -> DB   : DailyLogEntry.countDocuments({ week: weekId })
+  DB  --> CTRL : completedDays count (e.g. 3 of 5)
+  CTRL --> FE  : 200 { success, data: { entry, completedDays, totalDays:5 } }
+  FE   --> Student : Progress bar updates (e.g. "3 / 5 days done")
+end
+
+== Upload Weekly Summary Image (after all 5 days complete) ==
+
+Student -> FE  : Attach summary image for the week
+FE      -> FE  : Check all 5 DailyLogEntries complete
+FE      -> API : POST /api/logbook/weeks/:weekId/image\n(multipart/form-data: image file)
+API     -> CLOUD : multer.upload() processes file buffer
+CLOUD   -> CLOUD : cloudinary.uploader.upload(buffer)
+CLOUD  --> API  : { secure_url, public_id }
+API     -> DB   : LogbookWeek.findByIdAndUpdate(weekId,\n{ weeklyImage: secure_url })
+DB     --> API  : Updated
+API    --> FE   : 200 { success, data: { weeklyImage: url } }
+FE     --> Student : Show uploaded image preview\n+ "Week Complete ✓" badge
+
+== Industry Supervisor Reviews & Comments ==
+
+IS  -> FE  : Open student's logbook week
+FE  -> API : GET /api/industry/students/:studentId/logbook/:weekId
+API -> DB  : LogbookWeek.findById(weekId).populate('entries')
+DB --> API : { week, entries[] }
+API --> FE : 200 { week, entries }
+FE --> IS  : Show daily entries + weekly image
+
+IS  -> FE  : Write comment, click Submit
+FE  -> API : POST /api/logbook/weeks/:weekId/comment\n{ comment }
+API -> CTRL : addComment(req, res)
+CTRL -> CTRL : protect + authorize(['industry_supervisor'])
+CTRL -> DB  : LogbookWeek.findByIdAndUpdate(weekId,\n{ $push: { supervisorComments:\n  { author, text, createdAt } } })
+DB  --> CTRL : Updated
+CTRL -> NOTIF : sendNotification to student\n"Your supervisor commented on Week N"
+CTRL --> FE   : 200 { success, data: comment }
+FE  --> IS   : Comment saved confirmation
+
+== Weekly Auto-Lock (Every Sunday 5 PM) ==
+
+CRON -> DB    : LogbookWeek.find({ isLocked: false,\nweekEndDate: { $lt: now } })
+DB  --> CRON  : [ expiredWeekIds[] ]
+CRON -> DB    : LogbookWeek.updateMany({ isLocked: true })
+DB  --> CRON  : Updated
+CRON -> NOTIF : Push notification to affected students\n"Last week's logbook has been locked"
+
+@enduml

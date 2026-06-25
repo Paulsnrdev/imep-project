@@ -1,0 +1,104 @@
+@startuml IMEP_Activity_Logbook
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam ActivityBorderColor #8E44AD
+skinparam ActivityBackgroundColor #F5EEF8
+skinparam ActivityDiamondBorderColor #E74C3C
+skinparam ActivityDiamondBackgroundColor #FADBD8
+skinparam ActivityStartColor #1A5276
+skinparam ActivityEndColor #1A5276
+skinparam swimlaneBorderColor #BDC3C7
+skinparam swimlaneBackgroundColor #FDFEFE
+
+title IMEP — Activity Diagram: Logbook Weekly Submission Process
+
+|Student|
+start
+
+:Navigate to Logbook page;
+:Fetch and display LogbookWeeks\n(GET /api/logbook/weeks);
+
+:Select a week to work on;
+
+if (Week is locked? (isLocked: true)) then (Yes)
+  :Show read-only view\n"This week is locked for editing";
+  stop
+else (No)
+  :Open week editor;
+endif
+
+repeat
+
+  :Select a day (Monday – Friday);
+
+  :Fill Daily Log Entry form:
+  • Activities Carried Out
+  • Skills Learned
+  • Challenges Encountered
+  • Plan for Tomorrow;
+
+  :Submit entry\n(POST /api/logbook/weeks/:weekId/entries);
+
+  |Backend API|
+  :Authenticate + authorize student;
+  :Verify week is not locked;
+  :Upsert DailyLogEntry for the day;
+  :Count completed days in week;
+  :Return 200 { entry, completedDays };
+
+  |Student|
+  :Progress bar updates\n(e.g. "3 of 5 days done");
+
+repeat while (All 5 days complete?) is (No)
+
+|Student|
+:All 5 entries done;
+:Attach weekly summary image\n(photo of week's work / site);
+:Upload image\n(POST /api/logbook/weeks/:weekId/image);
+
+|Backend API|
+:multer processes file buffer;
+:Upload to Cloudinary\n→ receive { secure_url };
+:Update LogbookWeek.weeklyImage = secure_url;
+:Return 200 { weeklyImage: url };
+
+|Student|
+:Week shows "Complete ✓" badge;
+:Wait for supervisor review;
+
+|Industry Supervisor|
+:Receive notification:\n"Student submitted Week N";
+:Open student's logbook week;
+:Review daily entries + weekly image;
+:Write comment / feedback;
+
+|Backend API|
+:Save comment to\nLogbookWeek.supervisorComments;
+:Push notification to student:\n"Your supervisor commented on Week N";
+
+|Student|
+:Receive comment notification;
+:View supervisor feedback;
+
+|System (Automated)|
+:Every Sunday 5 PM (BullMQ cron):
+Find open weeks where weekEndDate < now;
+Bulk set isLocked = true;
+Push notification to students:
+"Your logbook for Week N is now locked";
+
+|Industry Supervisor|
+:Submit manual grade for the week\n(0–50 points + optional note)\n(POST /api/industry/grading/:studentId/week/:weekId);
+
+|System (Automated)|
+:Calculate total grade:\ntotalScore = systemScore + supervisorScore\n(Attendance 0–20 + Logbook 0–30 + Supervisor 0–50)\nmax 100 points;
+:Save to Grade record;
+
+|Student|
+:View final grade for this week\n(Attendance | Logbook | Supervisor | Total);
+
+stop
+
+@enduml

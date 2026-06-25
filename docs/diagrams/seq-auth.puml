@@ -1,0 +1,89 @@
+@startuml IMEP_Seq_Auth
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #2E86C1
+skinparam sequenceParticipantBackgroundColor #EBF5FB
+skinparam sequenceActorBorderColor #1A5276
+skinparam sequenceGroupBorderColor #5D6D7E
+skinparam sequenceGroupBackgroundColor #F8F9FA
+skinparam noteBorderColor #F39C12
+skinparam noteBackgroundColor #FEF9E7
+
+title IMEP — Sequence Diagram: Registration, Onboarding & Login
+
+actor        User
+participant  "React Frontend"     as FE
+participant  "Express API\n/api/auth" as API
+participant  "Auth Service"       as SVC
+participant  "Token Service"      as TOKEN
+database     "MongoDB"            as DB
+participant  "Email Service\n(Nodemailer)" as EMAIL
+
+== Registration ==
+
+User -> FE  : Fill form (firstName, lastName,\nemail, password, role)
+FE   -> API : POST /api/auth/register\n{ firstName, lastName, email, password, role }
+API  -> SVC : register(req, res)
+SVC  -> DB  : User.findOne({ email })
+DB  --> SVC : null (not found — ok)
+SVC  -> SVC : bcrypt.hash(password, 12)
+SVC  -> DB  : User.create({ ...userData })
+DB  --> SVC : User document saved
+SVC  -> TOKEN : generateAccessToken(userId, role)
+SVC  -> TOKEN : generateRefreshToken(userId)
+TOKEN --> SVC : { accessToken, refreshToken }
+SVC  -> DB  : Session.create({ userId, refreshToken, device, ip })
+SVC --> API : { user, accessToken }
+API --> FE  : 201 { success, data: { user, accessToken } }\nSet-Cookie: refreshToken (httpOnly, secure)
+FE   -> FE  : Redux: store accessToken
+FE  --> User : Redirect → /onboarding/:role
+
+== Onboarding (Student example) ==
+
+User -> FE  : Fill onboarding form\n(university, department, company,\nwork location, internship dates)
+FE   -> API : POST /api/student/onboarding\nAuthorization: Bearer <accessToken>
+API  -> API : protect middleware: verify JWT
+API  -> API : authorize(['student'])
+API  -> DB  : StudentProfile.create({ user, ...profileData })
+DB  --> API : Profile saved
+API  -> DB  : User.updateOne({ isOnboardingComplete: true })
+DB  --> API : Updated
+API --> FE  : 200 { success, data: { isOnboardingComplete: true } }
+FE   -> FE  : Redux: update auth state
+FE  --> User : Redirect → /student/dashboard
+
+== Login ==
+
+User -> FE  : Enter email + password
+FE   -> API : POST /api/auth/login\n{ email, password }
+API  -> SVC : login(req, res)
+SVC  -> DB  : User.findOne({ email }).select('+password')
+DB  --> SVC : User document
+SVC  -> SVC : user.comparePassword(password)\n(bcrypt.compare)
+SVC  -> TOKEN : generateAccessToken(userId, role)
+SVC  -> TOKEN : generateRefreshToken(userId)
+SVC  -> DB  : Session.findOneAndUpdate (upsert)\n{ device, ip, refreshToken, lastActive }
+SVC  -> DB  : User.updateOne({ lastLogin: now })
+SVC --> API : { user, accessToken }
+API --> FE  : 200 { success, data: { user, accessToken } }\nSet-Cookie: refreshToken (httpOnly, secure)
+FE   -> FE  : Redux: store accessToken + user
+FE  --> User : Redirect → role dashboard
+
+== Silent Token Refresh ==
+
+note over FE, API : Triggered automatically when API returns 401
+
+FE   -> API : POST /api/auth/refresh\n(Cookie: refreshToken sent automatically)
+API  -> TOKEN : verifyRefreshToken(token)
+TOKEN -> DB  : Session.findOne({ refreshToken })
+DB  --> TOKEN : Session valid
+TOKEN -> TOKEN : generateAccessToken(userId, role)
+TOKEN --> API : { accessToken }
+API --> FE   : 200 { success, data: { accessToken } }
+FE   -> FE   : Redux: update accessToken
+FE   -> FE   : Retry original failed request
+
+@enduml

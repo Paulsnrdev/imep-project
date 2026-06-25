@@ -1,0 +1,125 @@
+@startuml IMEP_Seq_Attendance
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceArrowThickness 2
+skinparam sequenceParticipantBorderColor #27AE60
+skinparam sequenceParticipantBackgroundColor #EAFAF1
+skinparam sequenceActorBorderColor #1A5276
+skinparam sequenceGroupBorderColor #5D6D7E
+skinparam sequenceGroupBackgroundColor #F8F9FA
+skinparam noteBorderColor #F39C12
+skinparam noteBackgroundColor #FEF9E7
+
+title IMEP — Sequence Diagram: GPS Attendance Check-In & Check-Out
+
+actor       Student
+participant "React Frontend"        as FE
+participant "Browser\nGeolocation API" as GEO
+participant "Express API\n/api/attendance" as API
+participant "Attendance\nController" as CTRL
+database    "MongoDB"               as DB
+participant "Notification\nService"  as NOTIF
+
+== GPS Check-In ==
+
+Student -> FE   : Tap "Check In" button
+FE      -> GEO  : navigator.geolocation.getCurrentPosition()
+
+alt GPS permission denied
+  GEO --> FE : error (PERMISSION_DENIED)
+  FE  --> Student : Show "Location access required" error
+else GPS granted
+  GEO --> FE : { latitude, longitude }
+end
+
+FE -> API : POST /api/attendance/checkin\n{ latitude, longitude }
+
+API -> CTRL : checkIn(req, res)
+CTRL -> CTRL : protect middleware: verify JWT
+CTRL -> CTRL : authorize(['student'])
+
+CTRL -> DB : Internship.findOne({ student, isActive:true })\n+ StudentProfile.findOne({ user }) — in parallel
+DB --> CTRL : { internship, studentProfile }
+
+alt No active internship
+  CTRL --> FE : 403 "Not linked to an active internship"
+else Already checked in today
+  CTRL -> DB : Attendance.findOne({ student, date:today })
+  DB --> CTRL : record with checkIn.time set
+  CTRL --> FE : 409 "Already checked in today"
+else Proceed
+  CTRL -> CTRL : calcDistance(student.lat, student.lng,\nworkLocation.lat, workLocation.lng)
+
+  alt Student outside geofence (> 200m radius)
+    CTRL --> FE : 422 { code: 'GEOFENCE_VIOLATION',\ndistanceFromOffice: Xm, radius: 200 }
+    FE   --> Student : Show "Xm from work zone — check-in blocked"
+  else Within geofence
+    CTRL -> CTRL : watTime(now) — convert to WAT (UTC+1)\nisLate = time after shift_start + 30min
+
+    alt Late check-in AND no violationReason in body
+      CTRL --> FE : 422 { requiresReason: true, type: 'late_checkin',\nworkShift: '8-16' }
+      FE   --> Student : Prompt "You're checking in late.\nPlease enter a reason."
+      Student -> FE  : Enter reason text
+      FE   -> API : POST /api/attendance/checkin\n{ latitude, longitude, violationReason }
+    end
+
+    CTRL -> DB : Attendance.findOneAndUpdate (upsert)\n{ checkIn: { time, lat, lng, isLate },\n  status: isLate ? 'late' : 'present',\n  violation: { type, reason } if late }
+    DB  --> CTRL : Attendance record saved
+
+    CTRL -> NOTIF : sendNotification to industrySupervisor\n+ institutionSupervisor\n{ title: 'Student Checked In', body, metadata }
+    NOTIF --> CTRL : notifications queued
+
+    CTRL --> FE : 200 { success: true, data: record }
+    FE   --> Student : Show "Checked In ✓" card with time & location
+  end
+end
+
+== GPS Check-Out ==
+
+Student -> FE   : Tap "Check Out" button
+FE      -> GEO  : navigator.geolocation.getCurrentPosition()
+GEO     --> FE  : { latitude, longitude }
+FE      -> API  : POST /api/attendance/checkout\n{ latitude, longitude }
+
+API  -> CTRL : checkOut(req, res)
+CTRL -> DB   : Attendance.findOne({ student, date:today })
+DB  --> CTRL : Attendance record
+
+alt No check-in record found
+  CTRL --> FE : 400 "You have not checked in today"
+else Already checked out
+  CTRL --> FE : 409 "Already checked out today"
+else Proceed
+  CTRL -> DB   : Internship.findById(record.internship)
+  DB  --> CTRL : { workShift: '8-16' }
+  CTRL -> CTRL : isEarlyDeparture = watTime(now) before (endH - 1):30
+
+  alt Early checkout AND no violationReason
+    CTRL --> FE : 422 { requiresReason: true, type: 'early_checkout' }
+    FE   --> Student : Prompt "You're checking out early.\nPlease enter a reason."
+    Student -> FE : Enter reason
+    FE      -> API : POST /api/attendance/checkout\n{ latitude, longitude, violationReason }
+  end
+
+  CTRL -> DB : record.checkOut = { time, lat, lng, isEarlyDeparture }\nrecord.violation = { type:'early_checkout', reason } if early\nawait record.save()
+  DB  --> CTRL : Updated
+
+  CTRL -> NOTIF : sendNotification to supervisors\n{ title: 'Student Checked Out', body, isEarly }
+  NOTIF --> CTRL : notifications queued
+
+  CTRL --> FE : 200 { success: true, data: record }
+  FE  --> Student : Show "Checked Out ✓" confirmation
+end
+
+== Nightly Cron: Flag Missing Checkouts ==
+
+note over API, DB : Runs nightly via BullMQ worker
+
+API -> DB   : Attendance.find({ checkIn.time: {$exists:true},\ncheckOut.time: {$exists:false}, date: today })
+DB --> API  : [ records of students who didn't check out ]
+API -> DB   : bulk update missedCheckout = true
+API -> NOTIF : Fire push notification to each student\n"You forgot to check out today"
+
+@enduml
